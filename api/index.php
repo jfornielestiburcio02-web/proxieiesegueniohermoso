@@ -1,78 +1,54 @@
 <?php
 
-function proxifyHtml($html, $proxyPrefix)
+function fixLinks($html, $base)
 {
-    // href=""
-    $html = preg_replace_callback(
-        '/href=["\'](.*?)["\']/i',
-        function ($m) use ($proxyPrefix) {
+    return preg_replace_callback(
+        '/(href|src|action)=["\'](.*?)["\']/i',
+        function($m) use ($base){
 
-            $url = $m[1];
+            $attr = $m[1];
+            $url  = $m[2];
 
-            if (
-                str_starts_with($url, '#') ||
+            if(
+                str_starts_with($url, 'data:') ||
                 str_starts_with($url, 'javascript:') ||
-                str_starts_with($url, 'data:')
-            ) {
+                str_starts_with($url, '#')
+            ){
                 return $m[0];
             }
 
-            return 'href="' . $proxyPrefix . $url . '"';
-        },
-        $html
-    );
-
-    // src=""
-    $html = preg_replace_callback(
-        '/src=["\'](.*?)["\']/i',
-        function ($m) use ($proxyPrefix) {
-
-            $url = $m[1];
-
-            if (
-                str_starts_with($url, 'data:')
-            ) {
-                return $m[0];
+            // URL absoluta
+            if(preg_match('/^https?:\/\//i', $url)){
+                $new = '/?url=' . urlencode($url);
             }
 
-            return 'src="' . $proxyPrefix . $url . '"';
+            // URL relativa
+            else{
+
+                $full = rtrim($base, '/') . '/' . ltrim($url, '/');
+
+                $new = '/?url=' . urlencode($full);
+            }
+
+            return $attr . '="' . $new . '"';
+
         },
         $html
     );
-
-    // action=""
-    $html = preg_replace_callback(
-        '/action=["\'](.*?)["\']/i',
-        function ($m) use ($proxyPrefix) {
-
-            $url = $m[1];
-
-            return 'action="' . $proxyPrefix . $url . '"';
-        },
-        $html
-    );
-
-    return $html;
 }
 
-$request = $_SERVER['REQUEST_URI'];
+$url = $_GET['url'] ?? '';
 
-$request = trim($request, '/');
-
-$self = basename(__FILE__);
-
-if (str_starts_with($request, $self)) {
-    $request = substr($request, strlen($self));
-    $request = trim($request, '/');
-}
-
-if (!$request) {
+if(!$url){
 
 ?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
+
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <title>Mini Proxy</title>
 
 <style>
@@ -89,8 +65,13 @@ body{
     flex-direction:column;
 }
 
+h1{
+    font-size:50px;
+    margin-bottom:20px;
+}
+
 input{
-    width:500px;
+    width:600px;
     max-width:90%;
     padding:15px;
     border:none;
@@ -103,13 +84,17 @@ input{
 
 button{
     margin-top:15px;
-    padding:12px 25px;
+    padding:14px 30px;
     border:none;
     border-radius:12px;
     background:#3b82f6;
     color:white;
-    font-size:16px;
     cursor:pointer;
+    font-size:17px;
+}
+
+button:hover{
+    background:#2563eb;
 }
 
 </style>
@@ -124,8 +109,10 @@ button{
 <input
     id="url"
     type="text"
-    placeholder="https://example.com"
+    placeholder="https://poki.com"
 >
+
+<br>
 
 <button>
 Abrir
@@ -139,13 +126,13 @@ function go(e){
 
     e.preventDefault();
 
-    let url = document.getElementById("url").value;
+    let url = document.getElementById("url").value.trim();
 
     if(!url.startsWith("http://") && !url.startsWith("https://")){
         url = "https://" + url;
     }
 
-    location.href = "/" + url;
+    location.href = "/?url=" + encodeURIComponent(url);
 }
 
 </script>
@@ -156,16 +143,13 @@ function go(e){
 exit;
 }
 
-if (
-    !str_starts_with($request, 'http://') &&
-    !str_starts_with($request, 'https://')
-) {
-    $request = 'https://' . $request;
+if(!preg_match('/^https?:\/\//i', $url)){
+    $url = 'https://' . $url;
 }
 
 $ch = curl_init();
 
-curl_setopt($ch, CURLOPT_URL, $request);
+curl_setopt($ch, CURLOPT_URL, $url);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
 curl_setopt($ch, CURLOPT_ENCODING, '');
@@ -177,22 +161,19 @@ $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
 
 curl_close($ch);
 
-if (!$response) {
+if(!$response){
     die("Error cargando la web");
-}
-
-if ($contentType) {
-    header("Content-Type: $contentType");
 }
 
 header_remove("X-Frame-Options");
 header_remove("Content-Security-Policy");
 
-if (str_contains($contentType, 'text/html')) {
+if($contentType){
+    header("Content-Type: " . $contentType);
+}
 
-    $proxyPrefix = '/';
-
-    $response = proxifyHtml($response, $proxyPrefix);
+if(str_contains($contentType, 'text/html')){
+    $response = fixLinks($response, $url);
 }
 
 echo $response;
