@@ -1,181 +1,199 @@
 <?php
 
-function fixLinks($html, $baseUrl) {
+function proxifyHtml($html, $proxyPrefix)
+{
+    // href=""
+    $html = preg_replace_callback(
+        '/href=["\'](.*?)["\']/i',
+        function ($m) use ($proxyPrefix) {
 
-    $parts = parse_url($baseUrl);
+            $url = $m[1];
 
-    $scheme = $parts['scheme'] ?? 'https';
-    $host = $parts['host'] ?? '';
+            if (
+                str_starts_with($url, '#') ||
+                str_starts_with($url, 'javascript:') ||
+                str_starts_with($url, 'data:')
+            ) {
+                return $m[0];
+            }
 
-    $root = $scheme . "://" . $host;
-
-    // CSS
-    $html = preg_replace(
-        '/href="\/(.*?)"/i',
-        'href="' . $root . '/$1"',
+            return 'href="' . $proxyPrefix . $url . '"';
+        },
         $html
     );
 
-    // JS / imágenes
-    $html = preg_replace(
-        '/src="\/(.*?)"/i',
-        'src="' . $root . '/$1"',
+    // src=""
+    $html = preg_replace_callback(
+        '/src=["\'](.*?)["\']/i',
+        function ($m) use ($proxyPrefix) {
+
+            $url = $m[1];
+
+            if (
+                str_starts_with($url, 'data:')
+            ) {
+                return $m[0];
+            }
+
+            return 'src="' . $proxyPrefix . $url . '"';
+        },
+        $html
+    );
+
+    // action=""
+    $html = preg_replace_callback(
+        '/action=["\'](.*?)["\']/i',
+        function ($m) use ($proxyPrefix) {
+
+            $url = $m[1];
+
+            return 'action="' . $proxyPrefix . $url . '"';
+        },
         $html
     );
 
     return $html;
 }
 
-$url = $_GET['url'] ?? '';
+$request = $_SERVER['REQUEST_URI'];
+
+$request = trim($request, '/');
+
+$self = basename(__FILE__);
+
+if (str_starts_with($request, $self)) {
+    $request = substr($request, strlen($self));
+    $request = trim($request, '/');
+}
+
+if (!$request) {
 
 ?>
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <title>Mini Proxy</title>
 
 <style>
 
 body{
     margin:0;
-    font-family:Arial;
     background:#0f172a;
     color:white;
-}
-
-.topbar{
-    background:#111827;
-    padding:15px;
-    display:flex;
-    gap:10px;
-    box-shadow:0 0 10px rgba(0,0,0,0.4);
-}
-
-input{
-    flex:1;
-    padding:12px;
-    border:none;
-    border-radius:10px;
-    background:#1e293b;
-    color:white;
-    outline:none;
-    font-size:16px;
-}
-
-button{
-    padding:12px 20px;
-    border:none;
-    border-radius:10px;
-    background:#3b82f6;
-    color:white;
-    cursor:pointer;
-    font-weight:bold;
-}
-
-button:hover{
-    background:#2563eb;
-}
-
-.content{
-    padding:0;
-}
-
-iframe{
-    width:100%;
-    height:calc(100vh - 70px);
-    border:none;
-    background:white;
-}
-
-.home{
+    font-family:Arial;
     display:flex;
     justify-content:center;
     align-items:center;
-    height:80vh;
+    height:100vh;
     flex-direction:column;
-    text-align:center;
 }
 
-h1{
-    font-size:50px;
-    margin-bottom:10px;
+input{
+    width:500px;
+    max-width:90%;
+    padding:15px;
+    border:none;
+    border-radius:12px;
+    background:#1e293b;
+    color:white;
+    font-size:18px;
+    outline:none;
 }
 
-p{
-    opacity:0.7;
+button{
+    margin-top:15px;
+    padding:12px 25px;
+    border:none;
+    border-radius:12px;
+    background:#3b82f6;
+    color:white;
+    font-size:16px;
+    cursor:pointer;
 }
 
 </style>
+
 </head>
 <body>
 
-<form class="topbar" method="GET">
+<h1>Mini Proxy</h1>
 
-    <input
-        type="text"
-        name="url"
-        placeholder="https://example.com"
-        value="<?= htmlspecialchars($url) ?>"
-    >
+<form onsubmit="go(event)">
 
-    <button type="submit">
-        Abrir
-    </button>
+<input
+    id="url"
+    type="text"
+    placeholder="https://example.com"
+>
+
+<button>
+Abrir
+</button>
 
 </form>
 
-<div class="content">
+<script>
 
-<?php
+function go(e){
 
-if($url){
+    e.preventDefault();
 
-    if(!preg_match('/^https?:\/\//', $url)){
-        $url = 'https://' . $url;
+    let url = document.getElementById("url").value;
+
+    if(!url.startsWith("http://") && !url.startsWith("https://")){
+        url = "https://" + url;
     }
 
-    $context = stream_context_create([
-        "http" => [
-            "header" =>
-                "User-Agent: Mozilla/5.0\r\n"
-        ]
-    ]);
-
-    $html = @file_get_contents($url, false, $context);
-
-    if($html){
-
-        $html = fixLinks($html, $url);
-
-        echo $html;
-
-    }else{
-
-        echo '
-        <div class="home">
-            <h1>Error</h1>
-            <p>No se pudo cargar la página.</p>
-        </div>
-        ';
-    }
-
-}else{
-
-    echo '
-    <div class="home">
-        <h1>Mini Proxy</h1>
-        <p>Navega usando la IP del servidor</p>
-    </div>
-    ';
+    location.href = "/" + url;
 }
 
-?>
-
-</div>
+</script>
 
 </body>
 </html>
+<?php
+exit;
+}
+
+if (
+    !str_starts_with($request, 'http://') &&
+    !str_starts_with($request, 'https://')
+) {
+    $request = 'https://' . $request;
+}
+
+$ch = curl_init();
+
+curl_setopt($ch, CURLOPT_URL, $request);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+curl_setopt($ch, CURLOPT_ENCODING, '');
+curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0');
+
+$response = curl_exec($ch);
+
+$contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+
+curl_close($ch);
+
+if (!$response) {
+    die("Error cargando la web");
+}
+
+if ($contentType) {
+    header("Content-Type: $contentType");
+}
+
+header_remove("X-Frame-Options");
+header_remove("Content-Security-Policy");
+
+if (str_contains($contentType, 'text/html')) {
+
+    $proxyPrefix = '/';
+
+    $response = proxifyHtml($response, $proxyPrefix);
+}
+
+echo $response;
+?>
